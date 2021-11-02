@@ -17,36 +17,36 @@ Description: 'Security: Antivirus for Amazon S3, a cloudonaut.io template'
 Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
-    - Label:
-        default: 'Parent Stacks'
-      Parameters:
-      - ParentVPCStack
-      - ParentSSHBastionStack
-    - Label:
-        default: 'Scan Parameters'
-      Parameters:
-      - DeleteInfectedFiles
-      - ReportCleanFiles
-      - TagFiles
-      - TagKey
-      - S3BucketRestriction
-      - S3ObjectRestriction
-    - Label:
-        default: 'Auto Scaling Group Parameters'
-      Parameters:
-      - AutoScalingMinSize
-      - AutoScalingMaxSize
-    - Label:
-        default: 'EC2 Parameters'
-      Parameters:
-      - KeyName
-      - IAMUserSSHAccess
-      - SystemsManagerAccess
-      - InstanceType
-      - SpotPrice
-      - LogsRetentionInDays
-      - VolumeSize
-      - SwapSize
+      - Label:
+          default: 'Parent Stacks'
+        Parameters:
+          - ParentVPCStack
+          - ParentSSHBastionStack
+      - Label:
+          default: 'Scan Parameters'
+        Parameters:
+          - DeleteInfectedFiles
+          - ReportCleanFiles
+          - TagFiles
+          - TagKey
+          - S3BucketRestriction
+          - S3ObjectRestriction
+      - Label:
+          default: 'Auto Scaling Group Parameters'
+        Parameters:
+          - AutoScalingMinSize
+          - AutoScalingMaxSize
+      - Label:
+          default: 'EC2 Parameters'
+        Parameters:
+          - KeyName
+          - IAMUserSSHAccess
+          - SystemsManagerAccess
+          - InstanceType
+          - SpotPrice
+          - LogsRetentionInDays
+          - VolumeSize
+          - SwapSize
 Parameters:
   ParentVPCStack:
     Description: 'Stack name of parent VPC stack based on vpc/vpc-*azs.yaml template.'
@@ -68,22 +68,22 @@ Parameters:
     Type: String
     Default: true
     AllowedValues:
-    - true
-    - false
+      - true
+      - false
   ReportCleanFiles:
     Description: 'Report successful scan of clean, as well as infected files to the SNS topic'
     Type: String
     Default: false
     AllowedValues:
-    - true
-    - false
+      - true
+      - false
   TagFiles:
     Description: 'Tag S3 object upon successful scan accordingly with values of "clean" or "infected" (infected only works if DeleteInfectedFiles != true) using key specified by TagKey.'
     Type: String
     Default: false
     AllowedValues:
-    - true
-    - false
+      - true
+      - false
   TagKey:
     Description: 'S3 object tag key used to specify values of "clean" or "infected".'
     Type: String
@@ -109,15 +109,15 @@ Parameters:
     Type: String
     Default: false
     AllowedValues:
-    - true
-    - false
+      - true
+      - false
   SystemsManagerAccess:
     Description: 'Enable AWS Systems Manager agent and authorization.'
     Type: String
     Default: true
     AllowedValues:
-    - true
-    - false
+      - true
+      - false
   InstanceType:
     Description: 'Specifies the instance type of the EC2 instance'
     Type: String
@@ -147,6 +147,39 @@ Parameters:
     ConstraintDescription: 'Must be in the range [0-8]'
     MinValue: 0
     MaxValue: 8
+  SecurityMode:
+    Type: String
+    Description: 'Set the security mode to PRIVATE to force instances to be in a private subnet even without a bastion host present. AUTO decides wheter instances are public or not on the presence of a bastion host, i.e. no bastion host means public access.'
+    Default: AUTO
+    AllowedValues:
+      - AUTO
+      - PRIVATE
+  MessageMode:
+    Type: String
+    Description: 'Sets the mode how to interpret a message stores in the scan queue. MULTIPLE is meant for use directly with S3 bucket notifications which contains multiple S3 events in the message, whereas SINGLE is meant to be used if S3 events are emitted as single events, e.g. by a serverless function. BE AWARE: SINGLE does not set an SQS policy for the ScanQueue, this has to be done outside of this template.'
+    Default: MULTIPLE
+    AllowedValues:
+      - MULTIPLE
+      - SINGLE
+  ImageMode:
+    Type: String
+    Description: 'Sets the mode how to determine the AMI for the worker instances, either by the internal AMI map or using the public SSM parameter provided by AWS.'
+    Default: INTERNAL_MAPPING
+    AllowedValues:
+      - INTERNAL_MAPPING
+      - SSM_PARAMETER
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: 'Name of the SSM parameter to use if ImageMode is set to SSM_PARAMETER.'
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+  CpuArchitecture:
+    Type: String
+    Default: amd64
+    AllowedValues:
+      - amd64
+      - arm64
+
 Conditions:
   HasSSHBastionSecurityGroup: !Not [!Equals [!Ref ParentSSHBastionStack, '']]
   HasKeyName: !Not [!Equals [!Ref KeyName, '']]
@@ -157,6 +190,15 @@ Conditions:
   HasTagFiles: !Equals [!Ref TagFiles, 'true']
   HasSpotPrice: !Not [!Equals [!Ref SpotPrice, '']]
   HasSwapSize: !Not [!Equals [!Ref SwapSize, '0']]
+
+  IsMessageModeMultiple: !Equals [!Ref MessageMode, 'MULTIPLE']
+  IsImageModeInternal: !Equals [!Ref ImageMode, 'INTERNAL_MAPPING']
+  IsSecurityModeAuto: !Equals [!Ref SecurityMode, 'AUTO']
+  IsArmArchitecture: !Equals [!Ref CpuArchitecture, 'arm64']
+
+  HasPublicNetworking: !And [!Condition IsSecurityModeAuto, !Condition HasNotSSHBastionSecurityGroup]
+  HasBastionNetworking: !And [!Condition IsSecurityModeAuto, !Condition HasSSHBastionSecurityGroup]
+
 Mappings:
   RegionMap:
     'af-south-1':
@@ -214,11 +256,11 @@ Resources:
     Type: 'AWS::CloudWatch::Alarm'
     Properties:
       AlarmActions:
-      - !Ref ScanScaleUp
+        - !Ref ScanScaleUp
       ComparisonOperator: GreaterThanThreshold
       Dimensions:
-      - Name: QueueName
-        Value: !GetAtt 'ScanQueue.QueueName'
+        - Name: QueueName
+          Value: !GetAtt 'ScanQueue.QueueName'
       EvaluationPeriods: 1
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: 'AWS/SQS'
@@ -230,11 +272,11 @@ Resources:
     Type: 'AWS::CloudWatch::Alarm'
     Properties:
       AlarmActions:
-      - !Ref ScanScaleDown
+        - !Ref ScanScaleDown
       ComparisonOperator: LessThanOrEqualToThreshold
       Dimensions:
-      - Name: QueueName
-        Value: !GetAtt 'ScanQueue.QueueName'
+        - Name: QueueName
+          Value: !GetAtt 'ScanQueue.QueueName'
       EvaluationPeriods: 1
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: 'AWS/SQS'
@@ -244,20 +286,21 @@ Resources:
       TreatMissingData: notBreaching
   ScanQueuePolicy:
     Type: 'AWS::SQS::QueuePolicy'
+    Condition: IsMessageModeMultiple
     Properties:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Effect: Allow
-          Principal:
-            Service: 's3.amazonaws.com'
-          Action: 'SQS:SendMessage'
-          Resource: !GetAtt 'ScanQueue.Arn'
-          Condition:
-            StringEquals:
-              'aws:SourceAccount': !Ref 'AWS::AccountId'
+          - Effect: Allow
+            Principal:
+              Service: 's3.amazonaws.com'
+            Action: 'SQS:SendMessage'
+            Resource: !GetAtt 'ScanQueue.Arn'
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
       Queues:
-      - !Ref ScanQueue
+        - !Ref ScanQueue
   ScanQueueDLQ:
     Type: 'AWS::SQS::Queue'
     Properties:
@@ -269,15 +312,15 @@ Resources:
       Namespace: 'AWS/SQS'
       MetricName: ApproximateNumberOfMessagesVisible
       Dimensions:
-      - Name: QueueName
-        Value: !GetAtt 'ScanQueueDLQ.QueueName'
+        - Name: QueueName
+          Value: !GetAtt 'ScanQueueDLQ.QueueName'
       Statistic: Sum
       Period: 60
       EvaluationPeriods: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       AlarmActions:
-      - !Ref FindingsTopic
+        - !Ref FindingsTopic
       TreatMissingData: notBreaching
   ScanQueueOldMessagesAlarm:
     Type: 'AWS::CloudWatch::Alarm'
@@ -286,15 +329,15 @@ Resources:
       Namespace: 'AWS/SQS'
       MetricName: ApproximateAgeOfOldestMessage
       Dimensions:
-      - Name: QueueName
-        Value: !GetAtt 'ScanQueue.QueueName'
+        - Name: QueueName
+          Value: !GetAtt 'ScanQueue.QueueName'
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 1
       Threshold: 3600 # 1 hour
       ComparisonOperator: GreaterThanOrEqualToThreshold
       AlarmActions:
-      - !Ref FindingsTopic
+        - !Ref FindingsTopic
       TreatMissingData: notBreaching
   ScanAutoScalingGroup:
     Type: 'AWS::AutoScaling::AutoScalingGroup'
@@ -302,11 +345,15 @@ Resources:
       LaunchConfigurationName: !Ref ScanLaunchConfiguration
       MaxSize: !Ref AutoScalingMaxSize
       MinSize: !Ref AutoScalingMinSize
-      VPCZoneIdentifier: !Split [',', {'Fn::ImportValue': !Sub '${ParentVPCStack}-SubnetsPublic'}]
+
+      VPCZoneIdentifier: !If
+        - HasPublicNetworking
+        - !Split [',', {'Fn::ImportValue': !Sub '${ParentVPCStack}-SubnetsPublic'}]
+        - !Split [',', {'Fn::ImportValue': !Sub '${ParentVPCStack}-SubnetsPrivate'}]
       Tags:
-      - Key: Name
-        Value: !Ref 'AWS::StackName'
-        PropagateAtLaunch: true
+        - Key: Name
+          Value: !Ref 'AWS::StackName'
+          PropagateAtLaunch: true
     CreationPolicy:
       ResourceSignal:
         Timeout: PT10M
@@ -323,26 +370,26 @@ Resources:
       MetricAggregationType: Maximum
       PolicyType: StepScaling
       StepAdjustments:
-      - MetricIntervalLowerBound: 0
-        MetricIntervalUpperBound: 25
-        ScalingAdjustment: 1
-      - MetricIntervalLowerBound: 25
-        MetricIntervalUpperBound: 100
-        ScalingAdjustment: 2
-      - MetricIntervalLowerBound: 100
-        MetricIntervalUpperBound: 400
-        ScalingAdjustment: 4
-      - MetricIntervalLowerBound: 400
-        MetricIntervalUpperBound: 1600
-        ScalingAdjustment: 8
-      - MetricIntervalLowerBound: 1600
-        MetricIntervalUpperBound: 6400
-        ScalingAdjustment: 16
-      - MetricIntervalLowerBound: 6400
-        MetricIntervalUpperBound: 25600
-        ScalingAdjustment: 32
-      - MetricIntervalLowerBound: 25600
-        ScalingAdjustment: 64
+        - MetricIntervalLowerBound: 0
+          MetricIntervalUpperBound: 25
+          ScalingAdjustment: 1
+        - MetricIntervalLowerBound: 25
+          MetricIntervalUpperBound: 100
+          ScalingAdjustment: 2
+        - MetricIntervalLowerBound: 100
+          MetricIntervalUpperBound: 400
+          ScalingAdjustment: 4
+        - MetricIntervalLowerBound: 400
+          MetricIntervalUpperBound: 1600
+          ScalingAdjustment: 8
+        - MetricIntervalLowerBound: 1600
+          MetricIntervalUpperBound: 6400
+          ScalingAdjustment: 16
+        - MetricIntervalLowerBound: 6400
+          MetricIntervalUpperBound: 25600
+          ScalingAdjustment: 32
+        - MetricIntervalLowerBound: 25600
+          ScalingAdjustment: 64
   ScanScaleDown:
     Type: 'AWS::AutoScaling::ScalingPolicy'
     Properties:
@@ -356,70 +403,70 @@ Resources:
     Type: 'AWS::IAM::InstanceProfile'
     Properties:
       Roles:
-      - !Ref ScanIAMRole
+        - !Ref ScanIAMRole
   ScanIAMRole:
     Type: 'AWS::IAM::Role'
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Effect: Allow
-          Principal:
-            Service: 'ec2.amazonaws.com'
-          Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: 'ec2.amazonaws.com'
+            Action: sts:AssumeRole
       ManagedPolicyArns: !If [HasSystemsManagerAccess, ['arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM'], []]
       Path: /
       Policies:
-      - PolicyName: s3read
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Action: 's3:GetObject*'
-            Resource: !Ref S3ObjectRestriction
-          - Effect: Allow
-            Action: 's3:ListBucket*'
-            Resource: !Ref S3BucketRestriction
-          - Effect: Allow
-            Action: 'kms:Decrypt'
-            Resource: '*'
-      - PolicyName: sqs
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Action:
-            - 'sqs:DeleteMessage'
-            - 'sqs:ReceiveMessage'
-            Resource: !GetAtt 'ScanQueue.Arn'
-      - PolicyName: sns
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Action: 'sns:Publish'
-            Resource: !Ref FindingsTopic
-      - PolicyName: cloudwatch
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Action: 'cloudwatch:PutMetricData'
-            Resource: '*'
-            Condition:
-              StringEquals:
-                'cloudwatch:namespace': !Ref 'AWS::StackName'
-          - Effect: Allow
-            Action: 'ec2:DescribeTags'
-            Resource: '*'
-          - Effect: Allow
-            Action:
-            - 'logs:CreateLogGroup'
-            - 'logs:CreateLogStream'
-            - 'logs:PutLogEvents'
-            - 'logs:DescribeLogStreams'
-            - 'logs:DescribeLogGroups'
-            Resource: !GetAtt 'Logs.Arn'
+        - PolicyName: s3read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 's3:GetObject*'
+                Resource: !Ref S3ObjectRestriction
+              - Effect: Allow
+                Action: 's3:ListBucket*'
+                Resource: !Ref S3BucketRestriction
+              - Effect: Allow
+                Action: 'kms:Decrypt'
+                Resource: '*'
+        - PolicyName: sqs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sqs:DeleteMessage'
+                  - 'sqs:ReceiveMessage'
+                Resource: !GetAtt 'ScanQueue.Arn'
+        - PolicyName: sns
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'sns:Publish'
+                Resource: !Ref FindingsTopic
+        - PolicyName: cloudwatch
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'cloudwatch:PutMetricData'
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'cloudwatch:namespace': !Ref 'AWS::StackName'
+              - Effect: Allow
+                Action: 'ec2:DescribeTags'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - 'logs:DescribeLogStreams'
+                  - 'logs:DescribeLogGroups'
+                Resource: !GetAtt 'Logs.Arn'
   DeletePolicy:
     Type: 'AWS::IAM::Policy'
     Condition: HasDeleteInfectedFiles
@@ -427,12 +474,12 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Effect: Allow
-          Action: 's3:DeleteObject*'
-          Resource: !Ref S3ObjectRestriction
+          - Effect: Allow
+            Action: 's3:DeleteObject*'
+            Resource: !Ref S3ObjectRestriction
       PolicyName: s3delete
       Roles:
-      - !Ref ScanIAMRole
+        - !Ref ScanIAMRole
   TagObjectPolicy:
     Type: 'AWS::IAM::Policy'
     Condition: HasTagFiles
@@ -440,38 +487,38 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Effect: Allow
-          Action:
-          - 's3:PutObjectTagging'
-          - 's3:PutObjectVersionTagging'
-          Resource: !Ref S3ObjectRestriction
-          Condition:
-            'ForAllValues:StringLike':
-              's3:RequestObjectTagKeys': !Ref TagKey
+          - Effect: Allow
+            Action:
+              - 's3:PutObjectTagging'
+              - 's3:PutObjectVersionTagging'
+            Resource: !Ref S3ObjectRestriction
+            Condition:
+              'ForAllValues:StringLike':
+                's3:RequestObjectTagKeys': !Ref TagKey
       PolicyName: s3objecttag
       Roles:
-      - !Ref ScanIAMRole
+        - !Ref ScanIAMRole
   ScanIAMPolicySSHAccess:
     Type: 'AWS::IAM::Policy'
     Condition: HasIAMUserSSHAccess
     Properties:
       Roles:
-      - !Ref ScanIAMRole
+        - !Ref ScanIAMRole
       PolicyName: iam
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Effect: Allow
-          Action:
-          - 'iam:ListUsers'
-          Resource:
-          - '*'
-        - Effect: Allow
-          Action:
-          - 'iam:ListSSHPublicKeys'
-          - 'iam:GetSSHPublicKey'
-          Resource:
-          - !Sub 'arn:aws:iam::${AWS::AccountId}:user/*'
+          - Effect: Allow
+            Action:
+              - 'iam:ListUsers'
+            Resource:
+              - '*'
+          - Effect: Allow
+            Action:
+              - 'iam:ListSSHPublicKeys'
+              - 'iam:GetSSHPublicKey'
+            Resource:
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:user/*'
   Logs:
     Type: 'AWS::Logs::LogGroup'
     Properties:
@@ -481,7 +528,14 @@ Resources:
     Metadata:
       'AWS::CloudFormation::Init':
         configSets:
-          default: [!If [HasSwapSize, swap, !Ref 'AWS::NoValue'], cloudwatch, !If [HasIAMUserSSHAccess, ssh-access, !Ref 'AWS::NoValue'], extras1, extras2, config]
+          default:
+            - !If [HasSwapSize, swap, !Ref 'AWS::NoValue']
+            - cloudwatch
+            - !If [HasIAMUserSSHAccess, ssh-access, !Ref 'AWS::NoValue']
+            - extras1
+            - extras2
+            - extras3
+            - config
         swap:
           commands:
             'a_setup':
@@ -490,7 +544,10 @@ Resources:
         cloudwatch:
           packages:
             rpm:
-              cloudwatch: 'https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm'
+              cloudwatch: !If
+                - IsArmArchitecture
+                - 'https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/arm64/latest/amazon-cloudwatch-agent.rpm'
+                - 'https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm'
           files:
             '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json': # https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-Configuration-File-Details.html
               content: !Sub |
@@ -629,9 +686,9 @@ Resources:
                 enabled: true
                 ensureRunning: true
                 files:
-                - '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json'
+                  - '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json'
                 packages:
-                - cloudwatch
+                  - cloudwatch
         ssh-access:
           files:
             '/opt/authorized_keys_command.sh':
@@ -696,8 +753,8 @@ Resources:
                 enabled: true
                 ensureRunning: true
                 commands:
-                - 'a_configure_sshd_command'
-                - 'b_configure_sshd_commanduser'
+                  - 'a_configure_sshd_command'
+                  - 'b_configure_sshd_commanduser'
         extras1:
           commands:
             a_enable_epel:
@@ -708,15 +765,20 @@ Resources:
             yum:
               'epel-release': []
               ruby: []
+        extras3:
+          commands:
+            a_install_ruby_2_6:
+              command: 'amazon-linux-extras install ruby2.6'
+            b_rubygems_daemons:
+              command: 'gem install daemons -v 1.3.1'
+            c_rubygems_securerandom:
+              command: 'gem install rubysl-securerandom -v 2.0.0'
         config:
           packages:
             yum:
               clamd: []
               clamav: []
               'clamav-update': []
-            rubygems:
-              daemons: ['1.3.1']
-              'rubysl-securerandom': ['2.0.0']
           files:
             '/opt/aws-s3-virusscan/daemon.rb':
               content: |
@@ -727,189 +789,194 @@ Resources:
               owner: root
               group: root
             '/opt/aws-s3-virusscan/worker.rb':
-              content: |
-                #!/usr/bin/env ruby
-                require 'aws-sdk-sqs'
-                require 'aws-sdk-sns'
-                require 'aws-sdk-s3'
-                require 'json'
-                require 'uri'
-                require 'yaml'
-                require 'syslog/logger'
-                require 'securerandom'
+              content: !Sub
+                - |
+                  #!/usr/bin/env ruby
+                  require 'aws-sdk-sqs'
+                  require 'aws-sdk-sns'
+                  require 'aws-sdk-s3'
+                  require 'json'
+                  require 'uri'
+                  require 'yaml'
+                  require 'syslog/logger'
+                  require 'securerandom'
 
-                $log = Syslog::Logger.new 's3-virusscan'
+                  $log = Syslog::Logger.new 's3-virusscan'
 
-                class Worker
+                  class Worker
 
-                  attr_reader :conf, :sns, :s3, :tag_key
+                    attr_reader :conf, :sns, :s3, :tag_key
 
-                  NO_STATUS = 'no'
-                  CLEAN_STATUS = 'clean'
-                  INFECTED_STATUS = 'infected'
+                    NO_STATUS = 'no'
+                    CLEAN_STATUS = 'clean'
+                    INFECTED_STATUS = 'infected'
 
-                  NO_ACTION = 'no'
-                  TAG_ACTION = 'tag'
-                  DELETE_ACTION = 'delete'
+                    NO_ACTION = 'no'
+                    TAG_ACTION = 'tag'
+                    DELETE_ACTION = 'delete'
 
-                  def initialize
-                    @conf = YAML::load_file(__dir__ + '/s3-virusscan.conf')
-                    Aws.config.update(region: conf['region'])
-                    @tag_key = conf['tag_key']
-                    @sns = Aws::SNS::Client.new()
-                    @s3 = Aws::S3::Client.new()
-                  end
+                    def initialize
+                      @conf = YAML::load_file(__dir__ + '/s3-virusscan.conf')
+                      Aws.config.update(region: conf['region'])
+                      @tag_key = conf['tag_key']
+                      @sns = Aws::SNS::Client.new()
+                      @s3 = Aws::S3::Client.new()
+                    end
 
-                  def run
-                    $log.info "s3-virusscan started"
+                    def run
+                      $log.info "s3-virusscan started"
 
-                    poller = Aws::SQS::QueuePoller.new(conf['queue'])
+                      poller = Aws::SQS::QueuePoller.new(conf['queue'])
 
-                    max_size = conf['volume_size'] * 1073741824 / 2 # in bytes
+                      max_size = conf['volume_size'] * 1073741824 / 2 # in bytes
 
-                    poller.poll do |msg|
-                      begin
-                        body = JSON.parse(msg.body)
-                        $log.debug "body #{body}"
-                        if body.key?('Records')
-                          body['Records'].each do |record|
-                            bucket = record['s3']['bucket']['name']
-                            key = URI.decode_www_form_component(record['s3']['object']['key'])
-                            version = record['s3']['object']['versionId']
-                            fileName = "/tmp/#{SecureRandom.uuid}"
-                            if record['s3']['object']['size'] > max_size
-                              $log.info "s3://#{bucket}/#{key} #{version} bigger than half of the EBS volume, skip"
-                              if conf['tag_files']
-                                tag(bucket, key, version, NO_STATUS);
-                              end
-                              publish_notification(bucket, key, version, NO_STATUS, NO_ACTION);
-                              next
-                            end
-                            $log.debug "downloading s3://#{bucket}/#{key} #{version}..."
-                            begin
-                              if version
-                                s3.get_object(
-                                  response_target: fileName,
-                                  bucket: bucket,
-                                  key: key,
-                                  version_id: version
-                                )
-                              else
-                                s3.get_object(
-                                  response_target: fileName,
-                                  bucket: bucket,
-                                  key: key
-                                )
-                              end
-                            rescue Aws::S3::Errors::NoSuchKey
-                              $log.info "s3://#{bucket}/#{key} #{version} does no longer exist, skip"
-                              next
-                            end
-                            begin
-                              $log.info "scanning s3://#{bucket}/#{key} #{version}..."
-                              system("clamdscan #{fileName}")
-                              exitstatus = $?.exitstatus
-                              if exitstatus == 0 # No virus found.
+                      poller.poll do |msg|
+                        begin
+                          body = JSON.parse(msg.body)
+                          $log.debug "body #{body}"
+                          ${KeyCheckStatement}
+                            ${RecordLoopStatement}
+                              bucket = record['s3']['bucket']['name']
+                              key = URI.decode_www_form_component(record['s3']['object']['key'])
+                              version = record['s3']['object']['versionId']
+                              fileName = "/tmp/#{SecureRandom.uuid}"
+                              if record['s3']['object']['size'] > max_size
+                                $log.info "s3://#{bucket}/#{key} #{version} bigger than half of the EBS volume, skip"
                                 if conf['tag_files']
-                                  $log.debug "s3://#{bucket}/#{key} #{version} is clean (tagging)"
-                                  tag(bucket, key, version, CLEAN_STATUS);
+                                  tag(bucket, key, version, NO_STATUS);
+                                end
+                                publish_notification(bucket, key, version, NO_STATUS, NO_ACTION);
+                                next
+                              end
+                              $log.debug "downloading s3://#{bucket}/#{key} #{version}..."
+                              begin
+                                if version
+                                  s3.get_object(
+                                    response_target: fileName,
+                                    bucket: bucket,
+                                    key: key,
+                                    version_id: version
+                                  )
                                 else
-                                  $log.debug "s3://#{bucket}/#{key} #{version} is clean"
-                                end
-                                if conf['report_clean']
-                                  publish_notification(bucket, key, version, CLEAN_STATUS, NO_ACTION);
-                                end
-                              elsif exitstatus == 1 # Virus(es) found.
-                                if conf['delete']
-                                  $log.debug "s3://#{bucket}/#{key} #{version} is infected (deleting)"
-                                  s3.delete_object(
+                                  s3.get_object(
+                                    response_target: fileName,
                                     bucket: bucket,
                                     key: key
                                   )
-                                  publish_notification(bucket, key, version, INFECTED_STATUS, DELETE_ACTION);
-                                elsif conf['tag_files']
-                                  $log.debug "s3://#{bucket}/#{key} #{version} is infected (tagging)"
-                                  tag(bucket, key, version, INFECTED_STATUS);
-                                  publish_notification(bucket, key, version, INFECTED_STATUS, TAG_ACTION);
-                                else
-                                  $log.debug "s3://#{bucket}/#{key} #{version} is infected"
-                                  publish_notification(bucket, key, version, INFECTED_STATUS, NO_ACTION);
                                 end
-                              else # An error occured.
-                                raise "s3://#{bucket}/#{key} #{version} could not be scanned, clamdscan exit status was #{exitstatus}, retry"
+                              rescue Aws::S3::Errors::NoSuchKey
+                                $log.info "s3://#{bucket}/#{key} #{version} does no longer exist, skip"
+                                next
                               end
-                            ensure
-                              system("rm #{fileName}")
-                            end
+                              begin
+                                $log.info "scanning s3://#{bucket}/#{key} #{version}..."
+                                system("clamdscan #{fileName}")
+                                exitstatus = $?.exitstatus
+                                if exitstatus == 0 # No virus found.
+                                  if conf['tag_files']
+                                    $log.debug "s3://#{bucket}/#{key} #{version} is clean (tagging)"
+                                    tag(bucket, key, version, CLEAN_STATUS);
+                                  else
+                                    $log.debug "s3://#{bucket}/#{key} #{version} is clean"
+                                  end
+                                  if conf['report_clean']
+                                    publish_notification(bucket, key, version, CLEAN_STATUS, NO_ACTION);
+                                  end
+                                elsif exitstatus == 1 # Virus(es) found.
+                                  if conf['delete']
+                                    $log.debug "s3://#{bucket}/#{key} #{version} is infected (deleting)"
+                                    s3.delete_object(
+                                      bucket: bucket,
+                                      key: key
+                                    )
+                                    publish_notification(bucket, key, version, INFECTED_STATUS, DELETE_ACTION);
+                                  elsif conf['tag_files']
+                                    $log.debug "s3://#{bucket}/#{key} #{version} is infected (tagging)"
+                                    tag(bucket, key, version, INFECTED_STATUS);
+                                    publish_notification(bucket, key, version, INFECTED_STATUS, TAG_ACTION);
+                                  else
+                                    $log.debug "s3://#{bucket}/#{key} #{version} is infected"
+                                    publish_notification(bucket, key, version, INFECTED_STATUS, NO_ACTION);
+                                  end
+                                else # An error occured.
+                                  raise "s3://#{bucket}/#{key} #{version} could not be scanned, clamdscan exit status was #{exitstatus}, retry"
+                                end
+                              ensure
+                                system("rm #{fileName}")
+                              ${EndRecordLoopStatement}
+                            ${EndKeyCheckStatement}
                           end
+                        rescue Exception => e
+                          $log.error "message failed: #{e.inspect} #{msg.inspect}"
+                          raise e
                         end
-                      rescue Exception => e
-                        $log.error "message failed: #{e.inspect} #{msg.inspect}"
-                        raise e
                       end
                     end
-                  end
 
-                  private
+                    private
 
-                  def tag(bucket, key, version, status)
-                    if version
-                      s3.put_object_tagging(
-                        bucket: bucket,
-                        key: key,
-                        version_id: version,
-                        tagging: {tag_set: [{key: tag_key, value: status}]}
-                      )
-                    else
-                      s3.put_object_tagging(
-                        bucket: bucket,
-                        key: key,
-                        tagging: {tag_set: [{key: tag_key, value: status}]}
+                    def tag(bucket, key, version, status)
+                      if version
+                        s3.put_object_tagging(
+                          bucket: bucket,
+                          key: key,
+                          version_id: version,
+                          tagging: {tag_set: [{key: tag_key, value: status}]}
+                        )
+                      else
+                        s3.put_object_tagging(
+                          bucket: bucket,
+                          key: key,
+                          tagging: {tag_set: [{key: tag_key, value: status}]}
+                        )
+                      end
+                    end
+
+                    def publish_notification(bucket, key, version, status, action)
+                      message_attributes = {
+                        "bucket" => {
+                          data_type: "String",
+                          string_value: bucket
+                        },
+                        "key" => {
+                          data_type: "String",
+                          string_value: key
+                        },
+                        "status" => {
+                          data_type: "String",
+                          string_value: status
+                        },
+                        "action" => {
+                          data_type: "String",
+                          string_value: action
+                        }
+                      }
+                      if version
+                        message_attributes[:version] = {
+                          data_type: "String",
+                          string_value: version
+                        }
+                      end
+                      sns.publish(
+                        topic_arn: conf['topic'],
+                        message: "s3://#{bucket}/#{key} #{version} is #{status}, #{action} action executed",
+                        subject: "s3-virusscan s3://#{bucket}",
+                        message_attributes: message_attributes
                       )
                     end
+
                   end
 
-                  def publish_notification(bucket, key, version, status, action)
-                    message_attributes = {
-                      "bucket" => {
-                        data_type: "String",
-                        string_value: bucket
-                      },
-                      "key" => {
-                        data_type: "String",
-                        string_value: key
-                      },
-                      "status" => {
-                        data_type: "String",
-                        string_value: status
-                      },
-                      "action" => {
-                        data_type: "String",
-                        string_value: action
-                      }
-                    }
-                    if version
-                      message_attributes[:version] = {
-                        data_type: "String",
-                        string_value: version
-                      }
-                    end
-                    sns.publish(
-                      topic_arn: conf['topic'],
-                      message: "s3://#{bucket}/#{key} #{version} is #{status}, #{action} action executed",
-                      subject: "s3-virusscan s3://#{bucket}",
-                      message_attributes: message_attributes
-                    )
+                  begin
+                    Worker.new.run
+                  rescue Exception => e
+                    $log.error "worker failed: #{e.inspect}"
+                    raise e
                   end
-
-                end
-
-                begin
-                  Worker.new.run
-                rescue Exception => e
-                  $log.error "worker failed: #{e.inspect}"
-                  raise e
-                end
+                - KeyCheckStatement: !If [IsMessageModeMultiple, "if body.key?('Records')", ""]
+                  RecordLoopStatement: !If [IsMessageModeMultiple, "body['Records'].each do |record|", "record = body"]
+                  EndRecordLoopStatement: !If [IsMessageModeMultiple, "end", ""]
+                  EndKeyCheckStatement: !If [IsMessageModeMultiple, "end", ""]
               mode: '000744'
               owner: root
               group: root
@@ -1021,10 +1088,10 @@ Resources:
                 enabled: true
                 ensureRunning: true
                 files:
-                - '/opt/aws-s3-virusscan/daemon.rb'
-                - '/opt/aws-s3-virusscan/worker.rb'
-                - '/opt/aws-s3-virusscan/s3-virusscan.conf'
-                - '/etc/init.d/s3-virusscan'
+                  - '/opt/aws-s3-virusscan/daemon.rb'
+                  - '/opt/aws-s3-virusscan/worker.rb'
+                  - '/opt/aws-s3-virusscan/s3-virusscan.conf'
+                  - '/etc/init.d/s3-virusscan'
               amazon-ssm-agent:
                 enabled: !If [HasSystemsManagerAccess, true, false]
                 ensureRunning: !If [HasSystemsManagerAccess, true, false]
@@ -1032,23 +1099,26 @@ Resources:
                 enabled: true
                 ensureRunning: true
                 files:
-                - '/etc/cfn/cfn-hup.conf'
-                - '/etc/cfn/hooks.d/cfn-auto-reloader.conf'
+                  - '/etc/cfn/cfn-hup.conf'
+                  - '/etc/cfn/hooks.d/cfn-auto-reloader.conf'
     Properties:
       KeyName: !If [HasKeyName, !Ref KeyName, !Ref 'AWS::NoValue']
-      AssociatePublicIpAddress: true
+      AssociatePublicIpAddress: !If [HasPublicNetworking, true, false]
       EbsOptimized: false
       BlockDeviceMappings:
-      - DeviceName: '/dev/xvda'
-        Ebs:
-          VolumeSize: !Ref VolumeSize
-          VolumeType: gp2
+        - DeviceName: '/dev/xvda'
+          Ebs:
+            VolumeSize: !Ref VolumeSize
+            VolumeType: gp2
       IamInstanceProfile: !Ref ScanInstanceProfile
-      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      ImageId: !If
+        - IsImageModeInternal
+        - !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+        - !Ref ImageId
       InstanceType: !Ref InstanceType
       SpotPrice: !If [HasSpotPrice, !Ref SpotPrice, !Ref 'AWS::NoValue']
       SecurityGroups:
-      - !Ref ScanSecurityGroup
+        - !Ref ScanSecurityGroup
       UserData:
         'Fn::Base64': !Sub |
           #!/bin/bash -ex
@@ -1062,7 +1132,7 @@ Resources:
       VpcId: {'Fn::ImportValue': !Sub '${ParentVPCStack}-VPC'}
   ScanSecurityGroupInSSHBastion:
     Type: 'AWS::EC2::SecurityGroupIngress'
-    Condition: HasSSHBastionSecurityGroup
+    Condition: HasBastionNetworking
     Properties:
       GroupId: !Ref ScanSecurityGroup
       IpProtocol: tcp
@@ -1071,7 +1141,7 @@ Resources:
       SourceSecurityGroupId: {'Fn::ImportValue': !Sub '${ParentSSHBastionStack}-SecurityGroup'}
   ScanSecurityGroupInAll:
     Type: 'AWS::EC2::SecurityGroupIngress'
-    Condition: HasNotSSHBastionSecurityGroup
+    Condition: HasPublicNetworking
     Properties:
       GroupId: !Ref ScanSecurityGroup
       IpProtocol: tcp
